@@ -1,0 +1,86 @@
+// FkToIkBake - drag-and-drop installer for Maya 2027.
+// Drag this file into the Maya viewport.  It:
+//   1. copies the package to <MAYA_APP_DIR>/modules/FkToIkBake
+//   2. writes <MAYA_APP_DIR>/modules/FkToIkBake.mod (plugin + scripts paths)
+//   3. loads the plugin now and marks it auto-load
+//   4. adds an "FK>IK" button to the current shelf
+// No environment variables or development tools are needed.
+
+global proc fk2ikInstallLocator() {}
+
+proc string fk2ikHere() {
+    string $w = `whatIs fk2ikInstallLocator`;
+    string $p = substitute("^Mel procedure found in: ", $w, "");
+    return dirname(fromNativePath($p));
+}
+
+proc int fk2ikCopy(string $src, string $dst) {
+    if (!`filetest -f $src`) return 0;
+    sysFile -makeDir (dirname($dst));
+    return `sysFile -copy $dst $src`;
+}
+
+proc fk2ikCopyDir(string $src, string $dst, string $pattern) {
+    sysFile -makeDir $dst;
+    string $files[] = `getFileList -folder ($src + "/") -filespec $pattern`;
+    for ($f in $files) fk2ikCopy($src + "/" + $f, $dst + "/" + $f);
+}
+
+proc fk2ikInstall() {
+    string $src = fk2ikHere();
+    string $mll = $src + "/plug-ins/win64/2027/fkToIkBake.mll";
+    if (!`filetest -f $mll`) {
+        string $pick = `confirmDialog -title "FkToIkBake" -button "Browse..." -button "Cancel"
+            -defaultButton "Browse..." -cancelButton "Cancel"
+            -message ("fkToIkBake.mll was not found next to this installer:\n" + $mll +
+                      "\n\nBrowse to a built fkToIkBake.mll?  (README: 'Building the .mll')")`;
+        if ($pick != "Browse...") return;
+        string $res[] = `fileDialog2 -fileMode 1 -caption "Locate fkToIkBake.mll" -fileFilter "Maya plugin (*.mll)"`;
+        if (size($res) == 0 || !`filetest -f $res[0]`) return;
+        $mll = $res[0];
+    }
+    if (`pluginInfo -q -loaded fkToIkBake`) catch(`unloadPlugin -force fkToIkBake`);
+
+    string $appDir = `internalVar -userAppDir`;               // .../Documents/maya/
+    string $modRoot = $appDir + "modules";
+    string $dst = $modRoot + "/FkToIkBake";
+    fk2ikCopy($mll, $dst + "/plug-ins/win64/2027/fkToIkBake.mll");
+    fk2ikCopyDir($src + "/scripts", $dst + "/scripts", "*.mel");
+    fk2ikCopyDir($src + "/maps", $dst + "/maps", "*.ini");
+    fk2ikCopy($src + "/README.md", $dst + "/README.md");
+
+    string $mod = $modRoot + "/FkToIkBake.mod";
+    int $fh = `fopen $mod "w"`;
+    fprint $fh ("+ PLATFORM:win64 MAYAVERSION:2027 FkToIkBake 1.0.0 " + $dst + "\n");
+    fprint $fh "plug-ins: plug-ins/win64/2027\n";
+    fprint $fh "scripts: scripts\n";
+    fclose $fh;
+
+    // Make it usable in this session without a restart.
+    string $plugDir = $dst + "/plug-ins/win64/2027";
+    putenv "MAYA_PLUG_IN_PATH" (`getenv "MAYA_PLUG_IN_PATH"` + ";" + $plugDir);
+    putenv "MAYA_SCRIPT_PATH" (`getenv "MAYA_SCRIPT_PATH"` + ";" + $dst + "/scripts");
+    rehash;
+    loadPlugin ($plugDir + "/fkToIkBake.mll");
+    pluginInfo -edit -autoload true "fkToIkBake";
+    eval ("source \"" + $dst + "/scripts/fkToIkBakeRun.mel\"");
+    eval ("source \"" + $dst + "/scripts/fkToIkBakeUI.mel\"");
+
+    // Shelf button (current shelf).
+    global string $gShelfTopLevel;
+    if (`tabLayout -exists $gShelfTopLevel`) {
+        string $shelf = `tabLayout -q -selectTab $gShelfTopLevel`;
+        setParent ($gShelfTopLevel + "|" + $shelf);
+        string $kids[] = `shelfLayout -q -childArray ($gShelfTopLevel + "|" + $shelf)`;
+        for ($k in $kids)
+            if (`shelfButton -exists $k` && `shelfButton -q -label $k` == "FK>IK") deleteUI $k;
+        shelfButton -label "FK>IK" -imageOverlayLabel "FK>IK" -image1 "commandButton.png"
+            -annotation "FK to IK bake window"
+            -command "fkToIkBakeUI" -sourceType "mel";
+    }
+    print ("FkToIkBake installed to " + $dst + "\n");
+    confirmDialog -title "FkToIkBake" -button "OK" -message ("Installed.\n\nModule: " + $dst +
+        "\n\nShelf button 'FK>IK' opens the Bake window.\nCommand: fkToIkBake -rigMap <file.ini> -validate");
+}
+
+fk2ikInstall();

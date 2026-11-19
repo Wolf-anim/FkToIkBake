@@ -1,0 +1,35 @@
+// FkToIkBake - minimal runner (no UI; the work happens in the C++ command).
+//   fkToIkBakeRun(0) : bake with the last used rig map
+//   fkToIkBakeRun(1) : choose a rig map first
+// The namespace is taken from the first selected node, so selecting any
+// control of a referenced character bakes that character.
+
+global proc string fkToIkBakePickMap() {
+    string $res[];
+    if (`optionVar -exists fk2ikLastMap`) {
+        string $start = dirname(`optionVar -q fk2ikLastMap`);
+        $res = `fileDialog2 -fileMode 1 -caption "FkToIkBake: choose rig map" -fileFilter "Rig map (*.ini)" -startingDirectory $start`;
+    } else {
+        $res = `fileDialog2 -fileMode 1 -caption "FkToIkBake: choose rig map" -fileFilter "Rig map (*.ini)"`;
+    }
+    if (size($res) == 0) return "";
+    optionVar -stringValue fk2ikLastMap $res[0];
+    return $res[0];
+}
+
+global proc fkToIkBakeRun(int $pickMap) {
+    if (!`pluginInfo -q -loaded fkToIkBake`) loadPlugin "fkToIkBake";
+    string $map = "";
+    if (`optionVar -exists fk2ikLastMap`) $map = `optionVar -q fk2ikLastMap`;
+    if ($pickMap || $map == "" || !`filetest -f $map`) $map = fkToIkBakePickMap();
+    if ($map == "") return;
+
+    string $ns = "";
+    string $sel[] = `ls -sl`;
+    if (size($sel) > 0) $ns = `match "^.*:" $sel[0]`;
+
+    string $cmd = "fkToIkBake -rigMap \"" + $map + "\" -validate";
+    if ($ns != "") $cmd += " -namespace \"" + $ns + "\"";
+    print ("// " + $cmd + "\n");
+    eval $cmd;
+}

@@ -1,0 +1,33 @@
+FkToIkBake Maya test  2027  2026/11/19 13:28:12
+elbow bend sign -1 (len +20: 58.50906584, -20: 55.73074638)
+---- position mode, step 1 : fkToIkBake -mode position
+  arm [arm, position]: 300 samples, maxReach 0.9906, overExtended 0, straightFallback 0 | error max/mean: upper 0.00e+00/0.00e+00  mid 6.75e-04/3.54e-05  end 4.90e-04/3.94e-05 (units), end rot max 0.000 deg
+  timing: total 0.435s | prepare 0.001s | sample 0.137s | solve 0.000s | write 0.043s | validate 0.253s | keys 2700/2700
+  ctrl keys: 300, channel jumps >90deg/frame: 4
+---- rotation mode, step 1 : fkToIkBake -mode rotation
+  arm [arm, rotation]: 300 samples, maxReach 0.9906, overExtended 0, straightFallback 0 | error max/mean: upper 0.00e+00/0.00e+00  mid 6.87e-04/5.98e-05  end 4.76e-04/7.00e-05 (units), end rot max 0.000 deg
+  timing: total 0.451s | prepare 0.000s | sample 0.137s | solve 0.000s | write 0.062s | validate 0.250s | keys 2700/2700
+  ctrl keys: 300, channel jumps >90deg/frame: 4
+---- position mode, step 0.5 : fkToIkBake -mode position -step 0.5
+  arm [arm, position]: 599 samples, maxReach 0.9906, overExtended 0, straightFallback 0 | error max/mean: upper 0.00e+00/0.00e+00  mid 7.61e-04/6.06e-05  end 4.76e-04/7.13e-05 (units), end rot max 0.000 deg
+  timing: total 0.888s | prepare 0.000s | sample 0.272s | solve 0.001s | write 0.108s | validate 0.506s | keys 5391/5391
+  ctrl keys: 599, channel jumps >90deg/frame: 0
+---- timeline eval : fkToIkBake -mode position -evalMode timeline
+  arm [arm, position]: 300 samples, maxReach 0.9906, overExtended 0, straightFallback 0 | error max/mean: upper 0.00e+00/0.00e+00  mid 6.87e-04/5.98e-05  end 4.76e-04/7.00e-05 (units), end rot max 0.000 deg
+  timing: total 1.377s | prepare 0.000s | sample 0.338s | solve 0.001s | write 0.696s | validate 0.335s | keys 2700/2700
+  ctrl keys: 300, channel jumps >90deg/frame: 4
+---- reduction tol 0.01 : fkToIkBake -mode position -tolerance 0.01
+  arm [arm, position]: 300 samples, maxReach 0.9906, overExtended 0, straightFallback 0 | error max/mean: upper 0.00e+00/0.00e+00  mid 3.42e-03/1.14e-04  end 4.96e-03/1.26e-04 (units), end rot max 0.000 deg
+  timing: total 0.607s | prepare 0.000s | sample 0.134s | solve 0.000s | write 0.223s | validate 0.248s | keys 2655/2700
+  ctrl keys: 296, channel jumps >90deg/frame: 4
+elbow bend sign -1 (len +20: 58.50906584, -20: 55.73074638)
+---- before undo : fkToIkBake -mode position
+  arm [arm, position]: 300 samples, maxReach 0.9906, overExtended 0, straightFallback 0 | error max/mean: upper 0.00e+00/0.00e+00  mid 6.75e-04/3.54e-05  end 4.90e-04/3.94e-05 (units), end rot max 0.000 deg
+  timing: total 0.433s | prepare 0.001s | sample 0.136s | solve 0.000s | write 0.043s | validate 0.252s | keys 2700/2700
+  ctrl keys: 300, channel jumps >90deg/frame: 4
+undo/redo: keys 300 -> undo 0 -> redo 300
+elbow bend sign -1 (len +20: 58.50906584, -20: 55.73074638)
+---- long 5000 frames : fkToIkBake -mode position -startFrame 1 -endFrame 5000
+  arm [arm, position]: 5000 samples, maxReach 0.9906, overExtended 0, straightFallback 0 | error max/mean: upper 0.00e+00/0.00e+00  mid 6.75e-04/2.44e-06  end 4.90e-04/2.83e-06 (units), end rot max 0.000 deg
+  timing: total 7.205s | prepare 0.001s | sample 2.270s | solve 0.007s | write 0.706s | validate 4.221s | keys 45000/45000
+  ctrl keys: 5000, channel jumps >90deg/frame: 4

@@ -1,0 +1,161 @@
+// FkToIkBake in-Maya test.  source this file in Maya 2027.
+// Builds an FK + IK arm rig under a moving / spinning root, animates the FK
+// chain (fast moves, 360 spins), bakes with fkToIkBake -validate in both
+// modes, checks Euler flips and undo/redo, and writes a report next to it.
+
+global string $gFk2ikLog[];
+
+proc fk2ikT_log(string $s) {
+    global string $gFk2ikLog[];
+    $gFk2ikLog[size($gFk2ikLog)] = $s;
+    print ($s + "\n");
+}
+
+proc fk2ikT_build() {
+    file -f -new;
+    playbackOptions -min 1 -max 300 -ast 1 -aet 300;
+    currentTime 1;
+    group -em -n root;
+    select -cl;
+    joint -n fk_sh -p 0 150 0; joint -n fk_el -p 30 150 -4; joint -n fk_wr -p 58 150 0;
+    joint -e -oj xyz -sao yup -ch -zso fk_sh;
+    select -cl;
+    joint -n ik_sh -p 0 150 0; joint -n ik_el -p 30 150 -4; joint -n ik_wr -p 58 150 0;
+    joint -e -oj xyz -sao yup -ch -zso ik_sh;
+    parent fk_sh root; parent ik_sh root;
+    select -cl;
+    ikHandle -n arm_ikh -sj ik_sh -ee ik_wr -sol ikRPsolver;
+
+    // IK control: offset group with its own orientation, ZXY rotate order
+    circle -n arm_ik_ctrl -nr 1 0 0 -r 6; delete -ch arm_ik_ctrl;
+    group -n arm_ik_grp arm_ik_ctrl;
+    xform -ws -t 58 150 0 arm_ik_grp;
+    xform -ws -ro 0 35 10 arm_ik_grp;
+    setAttr arm_ik_ctrl.rotateOrder 2;
+    parent arm_ik_grp root;
+    parent arm_ikh arm_ik_ctrl;
+    orientConstraint -mo arm_ik_ctrl ik_wr;
+
+    // Pole vector control under root
+    spaceLocator -n arm_pv_ctrl;
+    group -n arm_pv_grp arm_pv_ctrl;
+    xform -ws -t 30 150 -45 arm_pv_grp;
+    parent arm_pv_grp root;
+    poleVectorConstraint arm_pv_ctrl arm_ikh;
+
+    // Which elbow rotateY sign bends the arm more?
+    // bend direction: the elbow rotation that SHORTENS shoulder->wrist
+    float $s[] = `xform -q -ws -t fk_sh`;
+    setAttr fk_el.ry 20;
+    float $a[] = `xform -q -ws -t fk_wr`;
+    setAttr fk_el.ry -20;
+    float $b[] = `xform -q -ws -t fk_wr`;
+    setAttr fk_el.ry 0;
+    float $da = mag(<<$a[0]-$s[0], $a[1]-$s[1], $a[2]-$s[2]>>);
+    float $db = mag(<<$b[0]-$s[0], $b[1]-$s[1], $b[2]-$s[2]>>);
+    float $sign = ($da < $db) ? 1.0 : -1.0;
+    fk2ikT_log("elbow bend sign " + $sign + " (len +20: " + $da + ", -20: " + $db + ")");
+
+    // FK animation: random-ish keys every 6 frames, elbow bend 2..130 deg,
+    // wrist fast rotations, root travels and spins 2x360.
+    seed 7;
+    for ($f = 1; $f <= 300; $f += 6) {
+        setKeyframe -t $f -at rx -v (rand(-80, 80)) fk_sh;
+        setKeyframe -t $f -at ry -v (rand(-60, 60)) fk_sh;
+        setKeyframe -t $f -at rz -v (rand(-70, 70)) fk_sh;
+        setKeyframe -t $f -at ry -v ($sign * rand(2, 130)) fk_el;
+        setKeyframe -t $f -at rx -v (rand(-170, 170)) fk_wr;
+        setKeyframe -t $f -at ry -v (rand(-60, 60)) fk_wr;
+        setKeyframe -t $f -at rz -v (rand(-80, 80)) fk_wr;
+    }
+    // a nearly straight section (frames 150-180)
+    for ($f = 150; $f <= 180; $f += 6) setKeyframe -t $f -at ry -v ($sign * rand(0, 1.5)) fk_el;
+    setKeyframe -t 1 -at ry -v 0 root;   setKeyframe -t 300 -at ry -v 720 root;
+    setKeyframe -t 1 -at tx -v 0 root;   setKeyframe -t 300 -at tx -v 200 root;
+    setKeyframe -t 1 -at tz -v 0 root;   setKeyframe -t 300 -at tz -v -80 root;
+    keyTangent -itt linear -ott linear root;
+}
+
+proc int fk2ikT_flips() {
+    int $n = 0;
+    for ($a in {"rx", "ry", "rz"}) {
+        float $v[] = `keyframe -q -vc ("arm_ik_ctrl." + $a)`;
+        for ($i = 1; $i < size($v); $i++) if (abs($v[$i] - $v[$i-1]) > 90) $n++;
+    }
+    return $n;
+}
+
+proc fk2ikT_run(string $label, string $flags) {
+    fk2ikT_log("---- " + $label + " : fkToIkBake " + $flags);
+    string $cmd = "fkToIkBake -fkJoints fk_sh fk_el fk_wr -ikJoints ik_sh ik_el ik_wr -ikControl arm_ik_ctrl -poleControl arm_pv_ctrl -type arm -validate " + $flags;
+    string $res[];
+    if (catch($res = eval($cmd))) { fk2ikT_log("COMMAND FAILED"); return; }
+    for ($r in $res) fk2ikT_log("  " + $r);
+    fk2ikT_log("  ctrl keys: " + size(`keyframe -q -tc arm_ik_ctrl.rx`) + ", channel jumps >90deg/frame: " + fk2ikT_flips());
+}
+
+global proc fk2ikMayaTest(string $reportPath) {
+    global string $gFk2ikLog[];
+    clear $gFk2ikLog;
+    if (!`pluginInfo -q -loaded fkToIkBake`) loadPlugin fkToIkBake;
+    fk2ikT_log("FkToIkBake Maya test  " + `about -v` + "  " + `date`);
+
+    fk2ikT_build();
+    fk2ikT_run("position mode, step 1", "-mode position");
+    fk2ikT_run("rotation mode, step 1", "-mode rotation");
+    fk2ikT_run("position mode, step 0.5", "-mode position -step 0.5");
+    fk2ikT_run("timeline eval", "-mode position -evalMode timeline");
+    fk2ikT_run("reduction tol 0.01", "-mode position -tolerance 0.01");
+
+    // undo / redo
+    fk2ikT_build();
+    fk2ikT_run("before undo", "-mode position");
+    int $before = size(`keyframe -q -tc arm_ik_ctrl.rx`);
+    undo;
+    int $afterUndo = size(`keyframe -q -tc arm_ik_ctrl.rx`);
+    redo;
+    int $afterRedo = size(`keyframe -q -tc arm_ik_ctrl.rx`);
+    fk2ikT_log("undo/redo: keys " + $before + " -> undo " + $afterUndo + " -> redo " + $afterRedo);
+
+    // long sequence perf: 5000 frames
+    fk2ikT_build();
+    playbackOptions -min 1 -max 5000;
+    fk2ikT_run("long 5000 frames", "-mode position -startFrame 1 -endFrame 5000");
+
+    int $fh = `fopen $reportPath "w"`;
+    for ($s in $gFk2ikLog) fprint $fh ($s + "\n");
+    fclose $fh;
+    print ("Report written: " + $reportPath + "\n");
+}
+
+// Diagnostic: which frame is off after the first bake on a fresh rig, really?
+global proc fk2ikDiag(string $reportPath) {
+    global string $gFk2ikLog[];
+    clear $gFk2ikLog;
+    fk2ikT_build();
+    string $res[] = `fkToIkBake -fkJoints fk_sh fk_el fk_wr -ikJoints ik_sh ik_el ik_wr -ikControl arm_ik_ctrl -poleControl arm_pv_ctrl -validate`;
+    fk2ikT_log($res[0]);
+    for ($f = 1; $f <= 300; $f++) {
+        currentTime $f;
+        float $a[] = `xform -q -ws -t fk_wr`; float $b[] = `xform -q -ws -t ik_wr`;
+        float $e = mag(<<$a[0]-$b[0], $a[1]-$b[1], $a[2]-$b[2]>>);
+        if ($e > 0.01) fk2ikT_log("frame " + $f + " real wrist error " + $e);
+    }
+    fk2ikT_log("scan done");
+    int $fh = `fopen $reportPath "w"`;
+    for ($s in $gFk2ikLog) fprint $fh ($s + "\n");
+    fclose $fh;
+}
+
+// Advanced-Skeleton-named mock rig in namespace "Test:" for the Bake window.
+global proc fk2ikASMock() {
+    fk2ikT_build();
+    if (!`namespace -exists Test`) namespace -add Test;
+    string $map[] = {"fk_sh", "FKXShoulder_L", "fk_el", "FKXElbow_L", "fk_wr", "FKXWrist_L",
+                     "ik_sh", "IKXShoulder_L", "ik_el", "IKXElbow_L", "ik_wr", "IKXWrist_L",
+                     "arm_ik_ctrl", "IKArm_L", "arm_pv_ctrl", "PoleArm_L", "root", "Main"};
+    for ($i = 0; $i < size($map); $i += 2) rename $map[$i] ("Test:" + $map[$i+1]);
+    spaceLocator -n "Test:FKIKArm_L";
+    addAttr -ln FKIKBlend -at double -min 0 -max 10 -dv 0 -k 1 "Test:FKIKArm_L";
+    select -r "Test:IKArm_L";
+}

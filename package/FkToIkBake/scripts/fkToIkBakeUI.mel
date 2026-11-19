@@ -1,0 +1,138 @@
+// FkToIkBake - small bake window (Advanced Skeleton naming, no rig map needed).
+//   fkToIkBakeUI;
+// The UI only collects options; all matching/baking is done by the C++
+// command fkToIkBake.
+
+// Advanced Skeleton names per limb:  fkUpper fkMid fkEnd ikUpper ikMid ikEnd ikCtrl pole switchNode type
+proc string[] fk2ikUI_asNames(string $limb) {
+    string $s = `match "[LR]$" $limb`;
+    string $r[];
+    if (`gmatch $limb "Arm*"`) {
+        $r = {"FKXShoulder_", "FKXElbow_", "FKXWrist_", "IKXShoulder_", "IKXElbow_", "IKXWrist_",
+              "IKArm_", "PoleArm_", "FKIKArm_"};
+    } else {
+        $r = {"FKXHip_", "FKXKnee_", "FKXAnkle_", "IKXHip_", "IKXKnee_", "IKXAnkle_",
+              "IKLeg_", "PoleLeg_", "FKIKLeg_"};
+    }
+    for ($i = 0; $i < 9; $i++) $r[$i] = $r[$i] + $s;
+    if (`gmatch $limb "Arm*"`) $r[9] = "arm"; else $r[9] = "leg";
+    return $r;
+}
+
+proc string fk2ikUI_ns() {
+    string $ns = `optionMenu -q -value fk2ikUI_nsMenu`;
+    if ($ns == ":") return "";
+    return $ns;
+}
+
+global proc fk2ikUI_refreshNamespaces() {
+    string $items[] = `optionMenu -q -itemListLong fk2ikUI_nsMenu`;
+    if (size($items)) deleteUI $items;
+    string $found[];
+    // namespaces that contain an Advanced Skeleton FK/IK switch
+    string $sw[] = `ls -r 1 "FKIKArm_*" "FKIKLeg_*"`;
+    for ($s in $sw) {
+        string $ns = `match "^.*:" $s`;
+        if ($ns == "") $ns = ":";
+        if (stringArrayFind($ns, 0, $found) < 0) $found[size($found)] = $ns;
+    }
+    if (size($found) == 0) $found[0] = ":";
+    for ($n in $found) menuItem -p fk2ikUI_nsMenu -label $n;
+    // prefer the namespace of the current selection
+    string $sel[] = `ls -sl`;
+    if (size($sel)) {
+        string $ns = `match "^.*:" $sel[0]`;
+        if ($ns == "") $ns = ":";
+        if (stringArrayFind($ns, 0, $found) >= 0) optionMenu -e -value $ns fk2ikUI_nsMenu;
+    }
+}
+
+global proc fk2ikUI_bake() {
+    if (!`pluginInfo -q -loaded fkToIkBake`) loadPlugin "fkToIkBake";
+    string $ns = fk2ikUI_ns();
+    string $choice = `optionMenu -q -value fk2ikUI_limbMenu`;
+    int $mocap = `checkBox -q -value fk2ikUI_mocap`;
+    int $validate = `checkBox -q -value fk2ikUI_validate`;
+    optionVar -intValue fk2ikUI_mocap $mocap;
+    optionVar -intValue fk2ikUI_validate $validate;
+    optionVar -stringValue fk2ikUI_limb $choice;
+
+    string $limbs[];
+    if ($choice == "All limbs") $limbs = {"Arm_L", "Arm_R", "Leg_L", "Leg_R"};
+    else $limbs[0] = `substitute "FK to IK : " $choice ""`;
+
+    string $report = "";
+    int $done = 0;
+    for ($limb in $limbs) {
+        string $n[] = fk2ikUI_asNames($limb);
+        string $missing = "";
+        for ($i = 0; $i < 9; $i++) if (!`objExists ($ns + $n[$i])`) $missing += " " + $ns + $n[$i];
+        if ($missing != "") {
+            if (size($limbs) == 1) {
+                confirmDialog -title "FK to IK Bake" -button "OK"
+                    -message ($limb + ": not found in namespace '" + $ns + "':\n" + $missing);
+                return;
+            }
+            $report += $limb + ": skipped (not in this rig)\n";
+            continue;
+        }
+        string $cmd = "fkToIkBake -namespace \"" + $ns + "\""
+            + " -fkJoints " + $n[0] + " " + $n[1] + " " + $n[2]
+            + " -ikJoints " + $n[3] + " " + $n[4] + " " + $n[5]
+            + " -ikControl " + $n[6] + " -poleControl " + $n[7]
+            + " -type " + $n[9]
+            + " -switchAttr \"" + $n[8] + ".FKIKBlend\" -switchValues 0 10"
+            + " -mode ";
+        if ($mocap) $cmd += "rotation"; else $cmd += "position";
+        if ($validate) $cmd += " -validate";
+        print ("// " + $cmd + "\n");
+        string $res[];
+        if (catch($res = eval($cmd))) {
+            $report += $limb + ": FAILED (see Script Editor)\n";
+            continue;
+        }
+        $done++;
+        $report += $limb + ": baked";
+        if ($validate) {
+            string $m = `match "end [0-9.e+-]+" $res[0]`;
+            string $r = `match "end rot max [0-9.]+ deg" $res[0]`;
+            $report += "   wrist/ankle error " + `substitute "end " $m ""` + " units, " + `substitute "end rot max " $r ""`;
+        }
+        $report += "\n";
+    }
+    text -e -label $report fk2ikUI_status;
+    if ($done) inViewMessage -amg ("<hl>FK to IK</hl> baked " + $done + " limb(s)") -pos topCenter -fade;
+}
+
+global proc fkToIkBakeUI() {
+    if (`window -exists fk2ikUI_win`) deleteUI fk2ikUI_win;
+    window -title "Bake" -sizeable true -widthHeight 330 210 fk2ikUI_win;
+    columnLayout -adjustableColumn true -rowSpacing 4 -columnAttach "both" 6;
+        text -label "Bake:" -align "left";
+        rowLayout -numberOfColumns 2 -adjustableColumn 1;
+            optionMenu fk2ikUI_nsMenu;
+            button -label "refresh" -width 50 -command "fk2ikUI_refreshNamespaces";
+        setParent ..;
+        optionMenu fk2ikUI_limbMenu;
+            menuItem -label "FK to IK : Arm_L";
+            menuItem -label "FK to IK : Arm_R";
+            menuItem -label "FK to IK : Leg_L";
+            menuItem -label "FK to IK : Leg_R";
+            menuItem -label "All limbs";
+        checkBox -label "baking MotionCapture" fk2ikUI_mocap;
+        text -label "(match Elbow/Knee rotation instead of position)" -align "left";
+        checkBox -label "report accuracy" fk2ikUI_validate;
+        button -label "Ok, Bake" -height 30 -command "fk2ikUI_bake";
+        text -label "" -align "left" fk2ikUI_status;
+    setParent ..;
+    if (`optionVar -exists fk2ikUI_mocap`) checkBox -e -value `optionVar -q fk2ikUI_mocap` fk2ikUI_mocap;
+    int $v = 1;
+    if (`optionVar -exists fk2ikUI_validate`) $v = `optionVar -q fk2ikUI_validate`;
+    checkBox -e -value $v fk2ikUI_validate;
+    if (`optionVar -exists fk2ikUI_limb`) {
+        string $l = `optionVar -q fk2ikUI_limb`;
+        catch(`optionMenu -e -value $l fk2ikUI_limbMenu`);
+    }
+    fk2ikUI_refreshNamespaces();
+    showWindow fk2ikUI_win;
+}
